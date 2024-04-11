@@ -30,6 +30,11 @@ java_library {
     java_version: "11",
     sdk_version: "current",
     min_sdk_version: "30",
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 java_library {
@@ -54,6 +59,11 @@ java_library {
     java_version: "11",
     sdk_version: "current",
     min_sdk_version: "30",
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 java_library {
@@ -74,6 +84,11 @@ java_library {
     sdk_version: "current",
     min_sdk_version: "30",
     visibility: [":__subpackages__"],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 java_library {
@@ -94,6 +109,11 @@ java_library {
     sdk_version: "current",
     min_sdk_version: "30",
     visibility: [":__subpackages__"],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 java_library {
@@ -114,6 +134,11 @@ java_library {
     sdk_version: "current",
     min_sdk_version: "30",
     visibility: [":__subpackages__"],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
 java_library {
@@ -137,5 +162,10 @@ java_library {
     sdk_version: "current",
     min_sdk_version: "30",
     visibility: [":__subpackages__"],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
 }
 
