@@ -19,6 +19,10 @@ package io.perfmark.java9;
 import io.perfmark.impl.Generator;
 import io.perfmark.impl.Mark;
 import io.perfmark.impl.MarkHolder;
+import io.perfmark.impl.MarkList;
+import io.perfmark.impl.MarkRecorderRef;
+import io.perfmark.impl.Storage;
+import io.perfmark.impl.ThreadInfo;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.ArrayDeque;
@@ -29,7 +33,6 @@ import java.util.ConcurrentModificationException;
 import java.util.Deque;
 import java.util.List;
 
-/** VarHandleMarkHolder is a MarkHolder optimized for wait free writes and few reads. */
 final class VarHandleMarkHolder extends MarkHolder {
   private static final long GEN_MASK = (1 << Generator.GEN_OFFSET) - 1;
   private static final long START_OP = 1; // Mark.Operation.TASK_START.ordinal();
@@ -62,6 +65,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     }
   }
 
+  private final MarkRecorderRef markRecorderRef;
   private final int maxEvents;
   private final long maxEventsMax;
 
@@ -75,17 +79,18 @@ final class VarHandleMarkHolder extends MarkHolder {
   private final long[] nanoTimes;
   private final long[] genOps;
 
-  VarHandleMarkHolder() {
-    this(32768);
+  VarHandleMarkHolder(MarkRecorderRef markRecorderRef) {
+    this(markRecorderRef, 32768);
   }
 
-  VarHandleMarkHolder(int maxEvents) {
+  VarHandleMarkHolder(MarkRecorderRef markRecorderRef, int maxEvents) {
     if (((maxEvents - 1) & maxEvents) != 0) {
       throw new IllegalArgumentException(maxEvents + " is not a power of two");
     }
     if (maxEvents <= 0) {
       throw new IllegalArgumentException(maxEvents + " is not positive");
     }
+    this.markRecorderRef = markRecorderRef;
     this.maxEvents = maxEvents;
     this.maxEventsMax = maxEvents - 1L;
     this.taskNames = new String[maxEvents];
@@ -95,8 +100,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     this.genOps = new long[maxEvents];
   }
 
-  @Override
-  public void start(long gen, String taskName, String tagName, long tagId, long nanoTime) {
+  void startAt(long gen, String taskName, String tagName, long tagId, long nanoTime) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -108,8 +112,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void start(long gen, String taskName, long nanoTime) {
+  void startAt(long gen, String taskName, long nanoTime) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -119,8 +122,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void start(long gen, String taskName, String subTaskName, long nanoTime) {
+  void startAt(long gen, String taskName, String subTaskName, long nanoTime) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -131,8 +133,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void link(long gen, long linkId) {
+  void link(long gen, long linkId) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     LONGS.setOpaque(tagIds, i, linkId);
@@ -141,8 +142,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void stop(long gen, long nanoTime) {
+  void stopAt(long gen, long nanoTime) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     LONGS.setOpaque(nanoTimes, i, nanoTime);
@@ -151,8 +151,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void stop(long gen, String taskName, String tagName, long tagId, long nanoTime) {
+  void stopAt(long gen, String taskName, String tagName, long tagId, long nanoTime) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -164,8 +163,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void stop(long gen, String taskName, long nanoTime) {
+  void stopAt(long gen, String taskName, long nanoTime) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -175,8 +173,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void stop(long gen, String taskName, String subTaskName, long nanoTime) {
+  void stopAt(long gen, String taskName, String subTaskName, long nanoTime) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -187,8 +184,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void event(long gen, String eventName, String tagName, long tagId, long nanoTime) {
+  void eventAt(long gen, String eventName, String tagName, long tagId, long nanoTime) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(taskNames, i, eventName);
@@ -200,8 +196,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void event(long gen, String eventName, long nanoTime) {
+  void eventAt(long gen, String eventName, long nanoTime) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(taskNames, i, eventName);
@@ -211,8 +206,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void event(long gen, String eventName, String subEventName, long nanoTime) {
+  void eventAt(long gen, String eventName, String subEventName, long nanoTime) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(taskNames, i, eventName);
@@ -223,8 +217,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void attachTag(long gen, String tagName, long tagId) {
+  void attachTag(long gen, String tagName, long tagId) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(tagNames, i, tagName);
@@ -234,8 +227,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void attachKeyedTag(long gen, String name, long value) {
+  void attachKeyedTag(long gen, String name, long value) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(tagNames, i, name);
@@ -245,8 +237,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void attachKeyedTag(long gen, String name, long value0, long value1) {
+  void attachKeyedTag(long gen, String name, long value0, long value1) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(tagNames, i, name);
@@ -257,8 +248,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public void attachKeyedTag(long gen, String name, String value) {
+  void attachKeyedTag(long gen, String name, String value) {
     long localIdx = (long) IDX.get(this);
     int i = (int) (localIdx & maxEventsMax);
     STRINGS.setOpaque(tagNames, i, name);
@@ -269,7 +259,34 @@ final class VarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void resetForTest() {
+  public void resetForAll() {
+    resetForThread();
+  }
+
+  @Override
+  public List<MarkList> read() {
+    ThreadInfo threadInfo = markRecorderRef.threadInfo();
+    List<Mark> marks = read(!(threadInfo.isTerminated() || threadInfo.isCurrentThread()));
+    if (marks.isEmpty()) {
+      return Collections.emptyList();
+    }
+    return List.of(
+        MarkList.newBuilder()
+            .setMarks(marks)
+            .setThreadId(threadInfo.getId())
+            .setThreadName(threadInfo.getName())
+            .setMarkRecorderId(markRecorderRef.markRecorderId())
+            .build());
+  }
+
+  @Override
+  public void resetForThread() {
+    if (markRecorderRef.threadInfo().isTerminated()) {
+      Storage.unregisterMarkHolder(this);
+    }
+    if (!markRecorderRef.threadInfo().isCurrentThread()) {
+      return;
+    }
     Arrays.fill(taskNames, null);
     Arrays.fill(tagNames, null);
     Arrays.fill(tagIds, 0);
@@ -279,8 +296,7 @@ final class VarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public List<Mark> read(boolean concurrentWrites) {
+  private List<Mark> read(boolean concurrentWrites) {
     final String[] localTaskNames = new String[maxEvents];
     final String[] localTagNames = new String[maxEvents];
     final long[] localTagIds = new long[maxEvents];
@@ -377,7 +393,6 @@ final class VarHandleMarkHolder extends MarkHolder {
           throw new ConcurrentModificationException("Read of storage was not threadsafe " + opVal);
       }
     }
-
     return Collections.unmodifiableList(new ArrayList<>(marks));
   }
 

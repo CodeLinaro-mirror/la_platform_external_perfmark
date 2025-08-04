@@ -24,23 +24,20 @@ import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import io.perfmark.impl.Generator;
 import io.perfmark.impl.Mark;
 import io.perfmark.impl.Storage;
-import java.io.FilePermission;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-import java.security.Permission;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
-import java.util.PropertyPermission;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Filter;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
-import java.util.logging.LoggingPermission;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -49,8 +46,9 @@ import org.junit.runners.JUnit4;
 public class PerfMarkTest {
 
   /**
-   * This test checks to see if PerfMark can be used from a Logger, which is used for recording if there is trouble
-   * turning on.  PerfMark should set a noop implementation before recording any problems with boot.
+   * This test checks to see if PerfMark can be used from a Logger, which is used for recording if
+   * there is trouble turning on. PerfMark should set a noop implementation before recording any
+   * problems with boot.
    */
   @Test
   public void noBootCycle() throws Exception {
@@ -61,8 +59,10 @@ public class PerfMarkTest {
     Class<?> clz = Class.forName(PerfMark.class.getName(), false, loader);
 
     Class<?> filterClz = Class.forName(TracingFilter.class.getName(), false, loader);
-    Constructor<? extends Filter> ctor = filterClz.asSubclass(Filter.class)
-        .getDeclaredConstructor(Class.class, AtomicReference.class);
+    Constructor<? extends Filter> ctor =
+        filterClz
+            .asSubclass(Filter.class)
+            .getDeclaredConstructor(Class.class, AtomicReference.class);
     ctor.setAccessible(true);
     Filter filter = ctor.newInstance(clz, ref);
     Logger logger = Logger.getLogger(PerfMark.class.getName());
@@ -71,195 +71,35 @@ public class PerfMarkTest {
     logger.setLevel(Level.ALL);
     logger.setFilter(filter);
     try {
-      runWithProperty(System.getProperties(), "io.perfmark.PerfMark.debug", "true", () -> {
-        try {
-          // Force Initialization.
-          Class.forName(PerfMark.class.getName(), true, loader);
-        } finally{
-          logger.setFilter(oldFilter);
-        }
-        return null;
-      });
-    } finally{
+      runWithProperty(
+          System.getProperties(),
+          "io.perfmark.PerfMark.debug",
+          "true",
+          () -> {
+            try {
+              // Force Initialization.
+              Class.forName(PerfMark.class.getName(), true, loader);
+            } finally {
+              logger.setFilter(oldFilter);
+            }
+            return null;
+          });
+    } finally {
       logger.setFilter(oldFilter);
       logger.setLevel(oldLevel);
     }
 
-    // The actual SecretPerfMarkImpl is not part of the custom class loader above, so it will be a class mismatch when
+    // The actual SecretPerfMarkImpl is not part of the custom class loader above, so it will be a
+    // class mismatch when
     // it tries to implement Impl.
     // The message will be the default still, so check for that, to prove it did something.
     Truth.assertThat(ref.get()).isNotNull();
     Truth.assertThat(ref.get().getMessage()).contains("Error during PerfMark.<clinit>");
   }
 
-  private static class HesitantSecurityManager extends SecurityManager {
-    boolean unload;
-
-    @Override
-    public void checkPermission(Permission perm) {
-      if (unload && perm.getName().equals("setSecurityManager")) {
-        return;
-      }
-      if (perm instanceof FilePermission) {
-        FilePermission fp = (FilePermission) perm;
-        if ("read".equals(fp.getActions())) {
-          if (fp.getName().endsWith(".class") && fp.getName().contains("io/perfmark/")) {
-            return;
-          }
-          if (fp.getName().endsWith(".jar") && fp.getName().contains("/perfmark/")) {
-            return;
-          }
-        }
-      }
-      if (perm instanceof PropertyPermission) {
-        if (perm.getName().equals("java.util.logging.manager") && perm.getActions().equals("read")) {
-          return;
-        }
-      }
-      for (StackTraceElement element : new Throwable().getStackTrace()) {
-        if (element.getClassName().equals(TestClassLoader.class.getName())) {
-          if (perm.getName().equals("suppressAccessChecks")) {
-            return;
-          }
-          if (perm.getName().equals("accessSystemModules")) {
-            return;
-          }
-        }
-        if (element.getClassName().equals("java.util.logging.Level")) {
-          if (perm.getName().equals("suppressAccessChecks")) {
-            return;
-          }
-          if (perm.getName().equals("accessSystemModules")) {
-            return;
-          }
-        }
-        if (element.getClassName().equals("java.util.logging.LogManager")) {
-          if (perm.getName().equals("shutdownHooks")) {
-            return;
-          }
-          if (perm.getName().equals("setContextClassLoader")) {
-            return;
-          }
-          if (perm instanceof LoggingPermission && perm.getName().equals("control")) {
-            return;
-          }
-        }
-        if (element.getClassName().equals("java.util.logging.Logger")) {
-          if (perm.getName().equals("sun.util.logging.disableCallerCheck")) {
-            return;
-          }
-          if (perm.getName().equals("getClassLoader")) {
-            return;
-          }
-        }
-      }
-
-      super.checkPermission(perm);
-    }
-  }
-
-  @Test
-  public void worksWithSecurityManager_noStartEnabled_noDebug() throws Exception {
-    ClassLoader loader = new TestClassLoader(getClass().getClassLoader());
-
-    SecurityManager oldMgr = System.getSecurityManager();
-    HesitantSecurityManager newMgr = new HesitantSecurityManager();
-    Class<?> clz;
-    try {
-      System.setSecurityManager(newMgr);
-      clz = Class.forName(PerfMark.class.getName(), true, loader);
-      clz.getMethod("setEnabled", boolean.class).invoke(null, true);
-      clz.getMethod("event", String.class).invoke(null, "event");
-    } finally {
-      newMgr.unload = true;
-      System.setSecurityManager(oldMgr);
-    }
-
-    Class<?> storageClass = Class.forName(Storage.class.getName(), true, clz.getClassLoader());
-    List<Mark> marks = (List<Mark>) storageClass.getMethod("readForTest").invoke(null);
-    Truth.assertThat(marks).hasSize(1);
-  }
-
-  @Test
-  public void worksWithSecurityManager_startEnabled_noDebug() throws Exception {
-    ClassLoader loader = new TestClassLoader(getClass().getClassLoader());
-
-    SecurityManager oldMgr = System.getSecurityManager();
-    HesitantSecurityManager newMgr = new HesitantSecurityManager() {
-      @Override
-      public void checkPermission(Permission perm) {
-        if (perm instanceof PropertyPermission) {
-          if (perm.getName().equals("*")) {
-            return;
-          }
-          if (perm.getName().equals("io.perfmark.PerfMark.startEnabled") && perm.getActions().equals("read")) {
-            return;
-          }
-        }
-        super.checkPermission(perm);
-      }
-    };
-
-    Class<?> clz = runWithProperty(System.getProperties(), "io.perfmark.PerfMark.startEnabled", "true", () -> {
-      try {
-        System.setSecurityManager(newMgr);
-        Class<?> clz2 = Class.forName(PerfMark.class.getName(), true, loader);
-        clz2.getMethod("event", String.class).invoke(null, "event");
-        return clz2;
-      } finally {
-        newMgr.unload = true;
-        System.setSecurityManager(oldMgr);
-      }
-    });
-
-    Class<?> storageClass = Class.forName(Storage.class.getName(), true, clz.getClassLoader());
-    List<Mark> marks = (List<Mark>) storageClass.getMethod("readForTest").invoke(null);
-    Truth.assertThat(marks).hasSize(1);
-  }
-
-  @Test
-  public void worksWithSecurityManager_noStartEnabled_debug() throws Exception {
-    ClassLoader loader = new TestClassLoader(getClass().getClassLoader());
-
-    SecurityManager oldMgr = System.getSecurityManager();
-    HesitantSecurityManager newMgr = new HesitantSecurityManager() {
-      @Override
-      public void checkPermission(Permission perm) {
-        if (perm instanceof PropertyPermission) {
-          if (perm.getName().equals("*")) {
-            return;
-          }
-          if (perm.getName().equals("io.perfmark.PerfMark.debug") && perm.getActions().contains("read")) {
-            return;
-          }
-        }
-        super.checkPermission(perm);
-      }
-    };
-
-    // TODO check logging occurred.
-
-    Class<?> clz = runWithProperty(System.getProperties(), "io.perfmark.PerfMark.debug", "true", () -> {
-      try {
-        System.setSecurityManager(newMgr);
-        Class<?> clz2 = Class.forName(PerfMark.class.getName(), true, loader);
-        clz2.getMethod("setEnabled", boolean.class).invoke(null, true);
-        clz2.getMethod("event", String.class).invoke(null, "event");
-        return clz2;
-      } finally {
-        newMgr.unload = true;
-        System.setSecurityManager(oldMgr);
-      }
-    });
-
-    Class<?> storageClass = Class.forName(Storage.class.getName(), true, clz.getClassLoader());
-    List<Mark> marks = (List<Mark>) storageClass.getMethod("readForTest").invoke(null);
-    Truth.assertThat(marks).hasSize(1);
-  }
-
   @Test
   public void allMethodForward_taskName() {
-    Storage.clearLocalStorage();
+    Storage.resetForThread();
     PerfMark.setEnabled(true);
 
     long gen = getGen();
@@ -274,6 +114,9 @@ public class PerfMarkTest {
     PerfMark.startTask("task5", String::valueOf);
     PerfMark.attachTag(PerfMark.createTag("extra"));
     PerfMark.attachTag("name", "extra2", String::valueOf);
+    PerfMark.attachStringTag("name", "extra3", String::valueOf);
+    PerfMark.attachIntTag("name", List.of(), List::size);
+    PerfMark.attachLongTag("name", 2d, Double::longValue);
     Link link = PerfMark.linkOut();
     PerfMark.linkIn(link);
     PerfMark.stopTask();
@@ -285,9 +128,9 @@ public class PerfMarkTest {
       try (TaskCloseable task7 = PerfMark.traceTask("task7", String::valueOf)) {}
     }
 
-    List<Mark> marks = Storage.readForTest();
+    List<Mark> marks = new ArrayList<>(Storage.readForTest());
 
-    Truth.assertThat(marks).hasSize(24);
+    Truth.assertThat(marks).hasSize(27);
     List<Mark> expected =
         Arrays.asList(
             Mark.taskStart(gen, marks.get(0).getNanoTime(), "task1"),
@@ -300,29 +143,33 @@ public class PerfMarkTest {
             Mark.taskStart(gen, marks.get(7).getNanoTime(), "task5"),
             Mark.tag(gen, "extra", NO_TAG_ID),
             Mark.keyedTag(gen, "name", "extra2"),
+            Mark.keyedTag(gen, "name", "extra3"),
+            Mark.keyedTag(gen, "name", 0),
+            Mark.keyedTag(gen, "name", 2),
             Mark.link(gen, link.linkId),
             Mark.link(gen, -link.linkId),
-            Mark.taskEnd(gen, marks.get(12).getNanoTime()),
-            Mark.taskEnd(gen, marks.get(13).getNanoTime(), "task4"),
+            Mark.taskEnd(gen, marks.get(15).getNanoTime()),
+            Mark.taskEnd(gen, marks.get(16).getNanoTime(), "task4"),
             Mark.tag(gen, tag3.tagName, tag3.tagId),
-            Mark.taskEnd(gen, marks.get(15).getNanoTime(), "task3"),
+            Mark.taskEnd(gen, marks.get(18).getNanoTime(), "task3"),
             Mark.tag(gen, tag2.tagName, tag2.tagId),
-            Mark.taskEnd(gen, marks.get(17).getNanoTime(), "task2"),
+            Mark.taskEnd(gen, marks.get(20).getNanoTime(), "task2"),
             Mark.tag(gen, tag1.tagName, tag1.tagId),
-            Mark.taskEnd(gen, marks.get(19).getNanoTime(), "task1"),
-            Mark.taskStart(gen, marks.get(20).getNanoTime(), "task6"),
-            Mark.taskStart(gen, marks.get(21).getNanoTime(), "task7"),
-            Mark.taskEnd(gen, marks.get(22).getNanoTime()),
-            Mark.taskEnd(gen, marks.get(23).getNanoTime()));
+            Mark.taskEnd(gen, marks.get(22).getNanoTime(), "task1"),
+            Mark.taskStart(gen, marks.get(23).getNanoTime(), "task6"),
+            Mark.taskStart(gen, marks.get(24).getNanoTime(), "task7"),
+            Mark.taskEnd(gen, marks.get(25).getNanoTime()),
+            Mark.taskEnd(gen, marks.get(26).getNanoTime()));
     assertEquals(expected, marks);
   }
 
   @Test
   public void attachTag_nullFunctionFailsSilently() {
-    Storage.clearLocalStorage();
+    Storage.resetForThread();
     PerfMark.setEnabled(true);
 
-    PerfMark.attachTag("name", "extra2", null);
+    StringFunction<String> nullFunction = null;
+    PerfMark.attachTag("name", "extra2", nullFunction);
 
     List<Mark> marks = Storage.readForTest();
     Truth.assertThat(marks).hasSize(1);
@@ -330,7 +177,7 @@ public class PerfMarkTest {
 
   @Test
   public void attachTag_functionFailureSucceeds() {
-    Storage.clearLocalStorage();
+    Storage.resetForThread();
     PerfMark.setEnabled(true);
 
     PerfMark.attachTag(
@@ -346,7 +193,7 @@ public class PerfMarkTest {
 
   @Test
   public void attachTag_functionFailureObjectFailureSucceeds() {
-    Storage.clearLocalStorage();
+    Storage.resetForThread();
     PerfMark.setEnabled(true);
     Object o =
         new Object() {
@@ -369,7 +216,7 @@ public class PerfMarkTest {
 
   @Test
   public void attachTag_doubleFunctionFailureSucceeds() {
-    Storage.clearLocalStorage();
+    Storage.resetForThread();
     PerfMark.setEnabled(true);
 
     PerfMark.attachTag(
@@ -415,32 +262,32 @@ public class PerfMarkTest {
   }
 
   @CanIgnoreReturnValue
-  private static <T> T runWithProperty(Properties properties, String name, String value, Callable<T> runnable)
-      throws Exception {
+  static <T> T runWithProperty(
+      Properties properties, String name, String value, Callable<T> runnable) throws Exception {
     if (properties.containsKey(name)) {
       String oldProp;
       oldProp = properties.getProperty(name);
       try {
         System.setProperty(name, value);
         return runnable.call();
-      } finally{
+      } finally {
         properties.setProperty(name, oldProp);
       }
     } else {
       try {
         System.setProperty(name, value);
         return runnable.call();
-      } finally{
+      } finally {
         properties.remove(name);
       }
     }
   }
 
-  private static class TestClassLoader extends ClassLoader {
+  static class TestClassLoader extends ClassLoader {
 
     private final List<String> classesToDrop;
 
-    TestClassLoader(ClassLoader parent, String ... classesToDrop) {
+    TestClassLoader(ClassLoader parent, String... classesToDrop) {
       super(parent);
       this.classesToDrop = Arrays.asList(classesToDrop);
     }

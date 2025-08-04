@@ -21,10 +21,12 @@ import io.perfmark.Link;
 import io.perfmark.StringFunction;
 import io.perfmark.Tag;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
+import java.util.function.ToLongFunction;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
-import javax.annotation.Nullable;
 
 final class SecretPerfMarkImpl {
 
@@ -38,6 +40,7 @@ final class SecretPerfMarkImpl {
 
     private static final AtomicLong linkIdAlloc = new AtomicLong(1);
     private static final Generator generator;
+    private static final MarkRecorder markRecorder;
 
     // May be null if debugging is disabled.
     private static final Object logger;
@@ -51,19 +54,21 @@ final class SecretPerfMarkImpl {
     private static long actualGeneration;
 
     static {
-      assert ENABLED_BIT_SPACE + Generator.GEN_OFFSET + GEN_TIMESTAMP_SPACE <= 64;
+      // Avoid using asserts here, because it triggers a class load of the outer SecretPerfMarkImpl.
+      // See https://docs.oracle.com/javase/specs/jls/se7/html/jls-14.html#jls-14.10
+      // assert ENABLED_BIT_SPACE + Generator.GEN_OFFSET + GEN_TIMESTAMP_SPACE <= 64;
       Generator gen = null;
       Throwable[] problems = new Throwable[4];
       // Avoid using a for-loop for this code, as it makes it easier for tools like Proguard to rewrite.
       try {
-        Class<?> clz = Class.forName("io.perfmark.java7.SecretMethodHandleGenerator$MethodHandleGenerator");
+        Class<?> clz = Class.forName("io.perfmark.java7.SecretGenerator$MethodHandleGenerator");
         gen = clz.asSubclass(Generator.class).getConstructor().newInstance();
       } catch (Throwable t) {
         problems[0] = t;
       }
       if (gen == null) {
         try {
-          Class<?> clz = Class.forName("io.perfmark.java9.SecretVarHandleGenerator$VarHandleGenerator");
+          Class<?> clz = Class.forName("io.perfmark.java9.SecretGenerator$VarHandleGenerator");
           gen = clz.asSubclass(Generator.class).getConstructor().newInstance();
         } catch (Throwable t) {
           problems[1] = t;
@@ -71,16 +76,24 @@ final class SecretPerfMarkImpl {
       }
       if (gen == null) {
         try {
-          Class<?> clz = Class.forName("io.perfmark.java6.SecretVolatileGenerator$VolatileGenerator");
+          Class<?> clz = Class.forName("io.perfmark.java6.SecretGenerator$VolatileGenerator");
           gen = clz.asSubclass(Generator.class).getConstructor().newInstance();
         } catch (Throwable t) {
           problems[2] = t;
         }
       }
-      if (gen == null) {
-        generator = new NoopGenerator();
-      } else {
+      boolean isNoop;
+      if (gen != null) {
         generator = gen;
+        isNoop = false;
+      } else {
+        // This magic incantation avoids loading the NoopGenerator class.   When PerfMarkImpl is
+        // being verified, the JVM needs to load NoopGenerator to see that it actually is a
+        // Generator.  By doing a cast here, Java pushes the verification to when this branch is
+        // actually taken, which is uncommon.  Avoid reflectively loading the class, which may
+        // make binary shrinkers drop the NoopGenerator class.
+        generator = new Generator();
+        isNoop = true;
       }
 
       boolean startEnabled = false;
@@ -111,6 +124,34 @@ final class SecretPerfMarkImpl {
         // ignore
       }
       logger = log;
+      problems[0] = null;
+      problems[1] = null;
+      problems[2] = null;
+      problems[3] = null;
+
+      MarkRecorder markRecorder0 = null;
+      if (!isNoop) {
+        try {
+          Class<?> clz =
+              Class.forName("io.perfmark.java9.SecretMarkRecorder$VarHandleMarkRecorder");
+          markRecorder0 = clz.asSubclass(MarkRecorder.class).getConstructor().newInstance();
+        } catch (Throwable t) {
+          problems[0] = t;
+        }
+        if (markRecorder0 == null) {
+          try {
+            Class<?> clz =
+                Class.forName("io.perfmark.java6.SecretMarkRecorder$SynchronizedMarkRecorder");
+            markRecorder0 = clz.asSubclass(MarkRecorder.class).getConstructor().newInstance();
+          } catch (Throwable t) {
+            problems[1] = t;
+          }
+        }
+      }
+      if (markRecorder0 == null) {
+        markRecorder0 = new MarkRecorder();
+      }
+      markRecorder = markRecorder0;
     }
 
     public PerfMarkImpl(Tag key) {
@@ -154,7 +195,7 @@ final class SecretPerfMarkImpl {
 
     // VisibleForTesting
     static long nextGeneration(final long currentGeneration, final long nanosSinceInit) {
-      assert currentGeneration != Generator.FAILURE;
+      // currentGeneration != Generator.FAILURE;
       long currentMibros = mibrosFromGeneration(currentGeneration);
       long mibrosSinceInit = Math.min(mibrosFromNanos(nanosSinceInit), MAX_MIBROS); // 54bits
       boolean nextEnabled = !isEnabled(currentGeneration);
@@ -169,7 +210,7 @@ final class SecretPerfMarkImpl {
       }
       long enabledMask = nextEnabled ? INCREMENT : 0;
       long mibroMask = (nextMibros << (Generator.GEN_OFFSET + ENABLED_BIT_SPACE));
-      assert (enabledMask & mibroMask) == 0;
+      // (enabledMask & mibroMask) == 0;
       return mibroMask | enabledMask;
     }
 
@@ -192,7 +233,7 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.startAnyway(gen, taskName, unpackTagName(tag), unpackTagId(tag));
+      markRecorder.start(gen, taskName, unpackTagName(tag), unpackTagId(tag));
     }
 
     @Override
@@ -201,7 +242,7 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.startAnyway(gen, taskName);
+      markRecorder.start(gen, taskName);
     }
 
     @Override
@@ -210,17 +251,25 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.startAnyway(gen, taskName, subTaskName);
+      markRecorder.start(gen, taskName, subTaskName);
+    }
+
+    /**
+     * This method is needed to work with old version of perfmark-api.
+     */
+    protected <T> void startTask(T taskNameObject, StringFunction<? super T> stringFunction) {
+      Function<? super T, String> function = stringFunction;
+      startTask(taskNameObject, function);
     }
 
     @Override
-    protected <T> void startTask(T taskNameObject, StringFunction<? super T> stringFunction) {
+    protected <T> void startTask(T taskNameObject, Function<? super T, String> stringFunction) {
       final long gen = getGen();
       if (!isEnabled(gen)) {
         return;
       }
       String taskName = deriveTaskValue(taskNameObject, stringFunction);
-      Storage.startAnyway(gen, taskName);
+      markRecorder.start(gen, taskName);
     }
 
     @Override
@@ -229,7 +278,8 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.stopAnyway(gen);
+      long nanoTime = System.nanoTime();
+      markRecorder.stopAt(gen, nanoTime);
     }
 
     @Override
@@ -238,7 +288,8 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.stopAnyway(gen, taskName, unpackTagName(tag), unpackTagId(tag));
+      long nanoTime = System.nanoTime();
+      markRecorder.stopAt(gen, taskName, unpackTagName(tag), unpackTagId(tag), nanoTime);
     }
 
     @Override
@@ -247,7 +298,8 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.stopAnyway(gen, taskName);
+      long nanoTime = System.nanoTime();
+      markRecorder.stopAt(gen, taskName, nanoTime);
     }
 
     @Override
@@ -256,7 +308,8 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.stopAnyway(gen, taskName, subTaskName);
+      long nanoTime = System.nanoTime();
+      markRecorder.stopAt(gen, taskName, subTaskName, nanoTime);
     }
 
     @Override
@@ -265,7 +318,8 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.eventAnyway(gen, eventName, unpackTagName(tag), unpackTagId(tag));
+      long nanoTime = System.nanoTime();
+      markRecorder.eventAt(gen, eventName, unpackTagName(tag), unpackTagId(tag), nanoTime);
     }
 
     @Override
@@ -274,7 +328,8 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.eventAnyway(gen, eventName);
+      long nanoTime = System.nanoTime();
+      markRecorder.eventAt(gen, eventName, nanoTime);
     }
 
     @Override
@@ -283,7 +338,8 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.eventAnyway(gen, eventName, subEventName);
+      long nanoTime = System.nanoTime();
+      markRecorder.eventAt(gen, eventName, subEventName, nanoTime);
     }
 
     @Override
@@ -292,7 +348,7 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.attachTagAnyway(gen, unpackTagName(tag), unpackTagId(tag));
+      markRecorder.attachTag(gen, unpackTagName(tag), unpackTagId(tag));
     }
 
     @Override
@@ -301,22 +357,53 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.attachKeyedTagAnyway(gen, tagName, tagValue);
+      markRecorder.attachKeyedTag(gen, tagName, tagValue);
+    }
+
+    /**
+     * This method is needed to work with old version of perfmark-api.
+     */
+    public <T> void attachTag(
+        String tagName, T tagObject, StringFunction<? super T> stringFunction) {
+      Function<? super T, ? extends String> function = stringFunction;
+      attachTag(tagName, tagObject, function);
     }
 
     @Override
     protected <T> void attachTag(
-        String tagName, T tagObject, StringFunction<? super T> stringFunction) {
+        String tagName, T tagObject, Function<? super T, ? extends String> stringFunction) {
       final long gen = getGen();
       if (!isEnabled(gen)) {
         return;
       }
       String tagValue = deriveTagValue(tagName, tagObject, stringFunction);
-      Storage.attachKeyedTagAnyway(gen, tagName, tagValue);
+      markRecorder.attachKeyedTag(gen, tagName, tagValue);
+    }
+
+    @Override
+    protected <T> void attachTag(
+        String tagName, T tagObject, ToIntFunction<? super T> intFunction) {
+      final long gen = getGen();
+      if (!isEnabled(gen)) {
+        return;
+      }
+      long tagValue = deriveTagValue(tagName, tagObject, intFunction);
+      markRecorder.attachKeyedTag(gen, tagName, tagValue);
+    }
+
+    @Override
+    protected <T> void attachTag(
+        String tagName, T tagObject, ToLongFunction<? super T> longFunction) {
+      final long gen = getGen();
+      if (!isEnabled(gen)) {
+        return;
+      }
+      long tagValue = deriveTagValue(tagName, tagObject, longFunction);
+      markRecorder.attachKeyedTag(gen, tagName, tagValue);
     }
 
     static <T> String deriveTagValue(
-        String tagName, T tagObject, StringFunction<? super T> stringFunction) {
+        String tagName, T tagObject, Function<? super T, ? extends String> stringFunction) {
       try {
         return stringFunction.apply(tagObject);
       } catch (Throwable t) {
@@ -325,7 +412,28 @@ final class SecretPerfMarkImpl {
       }
     }
 
-    static <T> String deriveTaskValue(T taskNameObject, StringFunction<? super T> stringFunction) {
+    static <T> long deriveTagValue(
+        String tagName, T tagNameObject, ToIntFunction<? super T> intFunction) {
+      try {
+        // implicit cast
+        return intFunction.applyAsInt(tagNameObject);
+      } catch (Throwable t) {
+        handleTagValueFailure(tagName, tagNameObject, intFunction, t);
+        return Mark.NO_TAG_ID;
+      }
+    }
+
+    static <T> long deriveTagValue(
+        String tagName, T tagNameObject, ToLongFunction<? super T> longFunction) {
+      try {
+        return longFunction.applyAsLong(tagNameObject);
+      } catch (Throwable t) {
+        handleTagValueFailure(tagName, tagNameObject, longFunction, t);
+        return Mark.NO_TAG_ID;
+      }
+    }
+
+    static <T> String deriveTaskValue(T taskNameObject, Function<? super T, String> stringFunction) {
       try {
         return stringFunction.apply(taskNameObject);
       } catch (Throwable t) {
@@ -335,7 +443,7 @@ final class SecretPerfMarkImpl {
     }
 
     static <T> void handleTagValueFailure(
-        String tagName, T tagObject, StringFunction<? super T> stringFunction, Throwable cause) {
+        String tagName, T tagObject, Object stringFunction, Throwable cause) {
       if (logger == null) {
         return;
       }
@@ -362,7 +470,7 @@ final class SecretPerfMarkImpl {
     }
 
     static <T> void handleTaskNameFailure(
-        T taskNameObject, StringFunction<? super T> stringFunction, Throwable cause) {
+        T taskNameObject, Object function, Throwable cause) {
       if (logger == null) {
         return;
       }
@@ -371,8 +479,8 @@ final class SecretPerfMarkImpl {
         if (localLogger.isLoggable(Level.FINE)) {
           LogRecord lr =
               new LogRecord(
-                  Level.FINE, "PerfMark.startTask failed: taskObject={0}, stringFunction={1}");
-          lr.setParameters(new Object[] {taskNameObject, stringFunction});
+                  Level.FINE, "PerfMark.startTask failed: taskObject={0}, function={1}");
+          lr.setParameters(new Object[] {taskNameObject, function});
           lr.setThrown(cause);
           localLogger.log(lr);
         }
@@ -390,7 +498,7 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.attachKeyedTagAnyway(gen, tagName, tagValue);
+      markRecorder.attachKeyedTag(gen, tagName, tagValue);
     }
 
     @Override
@@ -399,11 +507,11 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.attachKeyedTagAnyway(gen, tagName, tagValue0, tagValue1);
+      markRecorder.attachKeyedTag(gen, tagName, tagValue0, tagValue1);
     }
 
     @Override
-    protected Tag createTag(@Nullable String tagName, long tagId) {
+    protected Tag createTag(String tagName, long tagId) {
       if (!isEnabled(getGen())) {
         return NO_TAG;
       }
@@ -417,7 +525,7 @@ final class SecretPerfMarkImpl {
         return NO_LINK;
       }
       long linkId = linkIdAlloc.getAndIncrement();
-      Storage.linkAnyway(gen, linkId);
+      markRecorder.link(gen, linkId);
       return packLink(linkId);
     }
 
@@ -427,7 +535,7 @@ final class SecretPerfMarkImpl {
       if (!isEnabled(gen)) {
         return;
       }
-      Storage.linkAnyway(gen, -unpackLinkId(link));
+      markRecorder.link(gen, -unpackLinkId(link));
     }
 
     private static long getGen() {
