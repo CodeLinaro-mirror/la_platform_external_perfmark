@@ -17,25 +17,14 @@
 package io.perfmark.impl;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
 
-import com.google.common.truth.Truth;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.io.IOException;
 import java.io.InputStream;
-import java.lang.reflect.Field;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.logging.Filter;
-import java.util.logging.Level;
-import java.util.logging.LogRecord;
-import java.util.logging.Logger;
-import java.util.logging.SimpleFormatter;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -45,90 +34,33 @@ public class StorageTest {
 
   @Test
   public void threadsCleanedUp() throws Exception {
-    Storage.clearLocalStorage();
-    final CountDownLatch latch = new CountDownLatch(1);
-    new Thread(
-            new Runnable() {
-              @Override
-              public void run() {
-                Storage.clearLocalStorage();
-                Storage.linkAnyway(4096, 1234);
-                latch.countDown();
-              }
-            })
-        .start();
+    Storage.resetForAll();
+    Storage.registerMarkHolder(new MarkHolder() {
+      @Override
+      public List<MarkList> read() {
+        return List.of(MarkList.newBuilder().setMarkRecorderId(1).setMarks(List.of()).setThreadName("name").build());
+      }
 
-    for (int i = 10; i < 5000; i += i / 2) {
-      latch.await(i, TimeUnit.MILLISECONDS);
-      System.gc();
-      System.runFinalization();
-    }
-
-    assertEquals(0, latch.getCount());
+      @Override
+      public void resetForAll() {
+        Storage.unregisterMarkHolder(this);
+      }
+    });
     List<MarkList> firstRead = Storage.read();
     assertEquals(1, firstRead.size());
-    // simulate an OOM
-    Storage.clearGlobalIndex();
-    List<MarkList> secondRead = Storage.read();
-    assertEquals(0, secondRead.size());
-  }
-  
-  @Test
-  public void customMarkHolderImpl() throws Exception {
-    Class<?> clz = runWithProperty(
-        System.getProperties(),
-        "io.perfmark.PerfMark.markHolderProvider",
-        TestMarkHolderProvider.class.getName(),
-        () -> Class.forName(Storage.class.getName(), true, new TestClassLoader(getClass().getClassLoader())));
+    Storage.resetForAll();
 
-    Field field = clz.getDeclaredField("markHolderProvider");
-    field.setAccessible(true);
-    Object value = field.get(null);
-    assertNotNull(value);
-    // Can't do instanceof, since class loaders are different.
-    assertEquals(TestMarkHolderProvider.class.getName(), value.getClass().getName());
-  }
-  @Test
-  public void logEnabled() throws Exception {
-    ClassLoader loader = new TestClassLoader(getClass().getClassLoader());
-    List<LogRecord> logs = new ArrayList<>();
-    Filter filter = record -> {
-      logs.add(record);
-      return true;
-    };
-    Logger logger = Logger.getLogger(Storage.class.getName());
-    Level oldLevel = logger.getLevel();
-    Filter oldFilter = logger.getFilter();
-    logger.setLevel(Level.ALL);
-    logger.setFilter(filter);
-    try {
-      runWithProperty(System.getProperties(), "io.perfmark.PerfMark.debug", "true", () -> {
-        // Force Initialization.
-        Class.forName(Storage.class.getName(), true, loader);
-        return null;
-      });
-    } finally{
-      logger.setFilter(oldFilter);
-      logger.setLevel(oldLevel);
+    for (int i = 10; i < 5000; i += i / 2) {
+      System.gc();
+      System.runFinalization();
+      List<MarkList> secondRead = Storage.read();
+      if (secondRead.size() != 0) {
+        Thread.sleep(i);
+      } else{
+        return;
+      }
     }
-
-    // This depends on the the classpath being set up correctly.
-    Truth.assertThat(logs).hasSize(3);
-    Truth.assertThat(logs.get(0).getMessage()).contains("Error loading MarkHolderProvider");
-    Truth.assertThat(logs.get(0).getThrown()).hasMessageThat()
-        .contains("io.perfmark.java9.SecretVarHandleMarkHolderProvider$VarHandleMarkHolderProvider");
-    Truth.assertThat(logs.get(1).getMessage()).contains("Error loading MarkHolderProvider");
-    Truth.assertThat(logs.get(1).getThrown()).hasMessageThat()
-        .contains("io.perfmark.java6.SecretSynchronizedMarkHolderProvider$SynchronizedMarkHolderProvider");
-    Truth.assertThat(new SimpleFormatter().format(logs.get(2)))
-        .contains("Using io.perfmark.impl.NoopMarkHolderProvider");
-  }
-
-  public static final class TestMarkHolderProvider extends MarkHolderProvider {
-    @Override
-    public MarkHolder create(long markHolderId) {
-      throw new AssertionError();
-    }
+    throw new AssertionError("Didn't clean up");
   }
 
   private static class TestClassLoader extends ClassLoader {

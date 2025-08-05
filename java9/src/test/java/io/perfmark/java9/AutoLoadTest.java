@@ -34,18 +34,12 @@ import org.junit.runners.JUnit4;
 public class AutoLoadTest {
   @Test
   public void autoLoad() throws Exception {
-    Storage.clearLocalStorage();
+    Storage.resetForThread();
     PerfMark.setEnabled(true);
     PerfMark.startTask("hi");
     PerfMark.stopTask("hi");
     PerfMark.setEnabled(false);
     MarkList markList = Storage.readForTest();
     assertEquals(2, markList.size());
-
-    // Have to check after to ensure it loaded properly
-    Field field = Storage.class.getDeclaredField("markHolderProvider");
-    field.setAccessible(true);
-
-    assertTrue(field.get(null) instanceof SecretVarHandleMarkHolderProvider.VarHandleMarkHolderProvider);
   }
 }

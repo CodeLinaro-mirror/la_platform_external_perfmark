@@ -20,7 +20,7 @@ java_library {
         "perfmark-link",
         "perfmark",
         "perfmark-tag",
-        "perfmark-stringfunction"
+        "perfmark-stringfunction",
     ],
     host_supported: true,
     apex_available: [
@@ -41,7 +41,7 @@ java_library {
     name: "perfmark",
     srcs: [
         "src/main/java/io/perfmark/PerfMark.java",
-        "src/main/java/io/perfmark/TaskCloseable.java"
+        "src/main/java/io/perfmark/TaskCloseable.java",
     ],
     static_libs: [
         "perfmark-impl",
@@ -155,8 +155,8 @@ java_library {
     ],
     host_supported: true,
     apex_available: [
-          "//apex_available:anyapex",
-          "//apex_available:platform",
+        "//apex_available:anyapex",
+        "//apex_available:platform",
     ],
     java_version: "11",
     sdk_version: "current",
@@ -168,4 +168,3 @@ java_library {
         },
     },
 }
-

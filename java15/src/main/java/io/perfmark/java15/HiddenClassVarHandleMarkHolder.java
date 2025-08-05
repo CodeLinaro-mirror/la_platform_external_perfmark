@@ -19,6 +19,11 @@ package io.perfmark.java15;
 import io.perfmark.impl.Generator;
 import io.perfmark.impl.Mark;
 import io.perfmark.impl.MarkHolder;
+import io.perfmark.impl.MarkList;
+import io.perfmark.impl.MarkRecorder;
+import io.perfmark.impl.MarkRecorderRef;
+import io.perfmark.impl.Storage;
+import io.perfmark.impl.ThreadInfo;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.ArrayDeque;
@@ -28,9 +33,10 @@ import java.util.Collections;
 import java.util.ConcurrentModificationException;
 import java.util.Deque;
 import java.util.List;
+import java.util.Objects;
 
 /** HiddenClassVarHandleMarkHolder is a MarkHolder optimized for wait free writes and few reads. */
-final class HiddenClassVarHandleMarkHolder extends MarkHolder {
+final class HiddenClassVarHandleMarkHolder extends MarkHolderRecorder {
   private static final long GEN_MASK = (1 << Generator.GEN_OFFSET) - 1;
   private static final long START_OP = 1; // Mark.Operation.TASK_START.ordinal();
   private static final long START_S_OP = 2;
@@ -52,7 +58,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   private static final VarHandle STRINGS;
   private static final VarHandle LONGS;
 
-  /** This is a magic number, read the top level doc for explanation. */
+  /** These are a magic number, read the top level doc for explanation. */
   static final int MAX_EVENTS = 0x7e3779b9;
   static final long MAX_EVENTS_MASK = MAX_EVENTS - 1;
 
@@ -66,6 +72,14 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   private static final long[] nanoTimes;
   private static final long[] genOps;
 
+  private static int maxEvents() {
+    return MAX_EVENTS;
+  }
+
+  private static long maxEventsMask() {
+    return MAX_EVENTS_MASK;
+  }
+
   static {
     try {
       IDX = MethodHandles.lookup().findStaticVarHandle(HiddenClassVarHandleMarkHolder.class, "idx", long.class);
@@ -75,20 +89,14 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
       throw new RuntimeException(e);
     }
 
-    try {
-      int maxEvents = (int) HiddenClassVarHandleMarkHolder.class.getDeclaredField("MAX_EVENTS").get(null);
-      if (((maxEvents - 1) & maxEvents) != 0) {
-        throw new IllegalArgumentException(maxEvents + " is not a power of two");
-      }
-      if (maxEvents <= 0) {
-        throw new IllegalArgumentException(maxEvents + " is not positive");
-      }
-      long maxEventsMask = (long) HiddenClassVarHandleMarkHolder.class.getDeclaredField("MAX_EVENTS_MASK").get(null);
-      if (maxEvents - 1 != maxEventsMask) {
-        throw new IllegalArgumentException(maxEvents + " doesn't match mask " + maxEventsMask);
-      }
-    } catch (IllegalAccessException | NoSuchFieldException e) {
-      throw new RuntimeException(e);
+    if (((maxEvents() - 1) & maxEvents()) != 0) {
+      throw new IllegalArgumentException(maxEvents() + " is not a power of two");
+    }
+    if (maxEvents() <= 0) {
+      throw new IllegalArgumentException(maxEvents() + " is not positive");
+    }
+    if (maxEvents() - 1 != maxEventsMask()) {
+      throw new IllegalArgumentException(maxEvents() + " doesn't match mask " + maxEventsMask());
     }
 
     taskNames = new String[MAX_EVENTS];
@@ -98,10 +106,14 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
     genOps = new long[MAX_EVENTS];
   }
 
-  HiddenClassVarHandleMarkHolder() {}
+  private final MarkRecorderRef ref;
+
+  HiddenClassVarHandleMarkHolder(MarkRecorderRef ref) {
+    this.ref = Objects.requireNonNull(ref);
+  }
 
   @Override
-  public void start(long gen, String taskName, String tagName, long tagId, long nanoTime) {
+  void startAt(long gen, String taskName, String tagName, long tagId, long nanoTime) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -114,7 +126,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void start(long gen, String taskName, long nanoTime) {
+  void startAt(long gen, String taskName, long nanoTime) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -125,7 +137,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void start(long gen, String taskName, String subTaskName, long nanoTime) {
+  void startAt(long gen, String taskName, String subTaskName, long nanoTime) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -137,7 +149,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void link(long gen, long linkId) {
+  void link(long gen, long linkId) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     LONGS.setOpaque(tagIds, i, linkId);
@@ -147,7 +159,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void stop(long gen, long nanoTime) {
+  void stopAt(long gen, long nanoTime) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     LONGS.setOpaque(nanoTimes, i, nanoTime);
@@ -157,7 +169,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void stop(long gen, String taskName, String tagName, long tagId, long nanoTime) {
+  void stopAt(long gen, String taskName, String tagName, long tagId, long nanoTime) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -170,7 +182,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void stop(long gen, String taskName, long nanoTime) {
+  void stopAt(long gen, String taskName, long nanoTime) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -181,7 +193,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void stop(long gen, String taskName, String subTaskName, long nanoTime) {
+  void stopAt(long gen, String taskName, String subTaskName, long nanoTime) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(taskNames, i, taskName);
@@ -193,7 +205,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void event(long gen, String eventName, String tagName, long tagId, long nanoTime) {
+  void eventAt(long gen, String eventName, String tagName, long tagId, long nanoTime) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(taskNames, i, eventName);
@@ -206,7 +218,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void event(long gen, String eventName, long nanoTime) {
+  void eventAt(long gen, String eventName, long nanoTime) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(taskNames, i, eventName);
@@ -217,7 +229,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void event(long gen, String eventName, String subEventName, long nanoTime) {
+  void eventAt(long gen, String eventName, String subEventName, long nanoTime) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(taskNames, i, eventName);
@@ -229,7 +241,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void attachTag(long gen, String tagName, long tagId) {
+  void attachTag(long gen, String tagName, long tagId) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(tagNames, i, tagName);
@@ -240,7 +252,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void attachKeyedTag(long gen, String name, long value) {
+  void attachKeyedTag(long gen, String name, long value) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(tagNames, i, name);
@@ -251,7 +263,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void attachKeyedTag(long gen, String name, long value0, long value1) {
+  void attachKeyedTag(long gen, String name, long value0, long value1) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(tagNames, i, name);
@@ -263,7 +275,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void attachKeyedTag(long gen, String name, String value) {
+  void attachKeyedTag(long gen, String name, String value) {
     long localIdx = (long) IDX.get();
     int i = (int) (localIdx & MAX_EVENTS_MASK);
     STRINGS.setOpaque(tagNames, i, name);
@@ -274,7 +286,51 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
   }
 
   @Override
-  public void resetForTest() {
+  public void resetForThread() {
+    if (ref.threadInfo().isTerminated()) {
+      Storage.unregisterMarkHolder(this);
+    }
+    if (!ref.threadInfo().isCurrentThread()) {
+      return;
+    }
+    resetHolderForThread();
+  }
+
+  @Override
+  public void resetForAll() {
+    if (ref.threadInfo().isTerminated()) {
+      Storage.unregisterMarkHolder(this);
+    }
+    if (!ref.threadInfo().isCurrentThread()) {
+      return;
+    }
+    resetHolderForThread();
+  }
+
+  @Override
+  @SuppressWarnings("unchecked")
+  public List<MarkList> read() {
+    ThreadInfo threadInfo = ref.threadInfo();
+    List<Mark> marks = read(!(threadInfo.isTerminated() || threadInfo.isCurrentThread()));
+    if (marks.isEmpty()) {
+      return Collections.emptyList();
+    }
+    return List.of(
+        MarkList.newBuilder()
+            .setMarks(marks)
+            .setThreadId(ref.threadInfo().getId())
+            .setThreadName(ref.threadInfo().getName())
+            .setMarkRecorderId(ref.markRecorderId())
+            .build());
+  }
+
+  @Override
+  public int maxMarks() {
+    // TODO(carl-mastrangelo): propagate this from the provider
+    return 32768;
+  }
+
+  static void resetHolderForThread() {
     Arrays.fill(taskNames, null);
     Arrays.fill(tagNames, null);
     Arrays.fill(tagIds, 0);
@@ -284,8 +340,7 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
     VarHandle.storeStoreFence();
   }
 
-  @Override
-  public List<Mark> read(boolean concurrentWrites) {
+  static List<Mark> read(boolean concurrentWrites) {
     final String[] localTaskNames = new String[MAX_EVENTS];
     final String[] localTagNames = new String[MAX_EVENTS];
     final long[] localTagIds = new long[MAX_EVENTS];
@@ -382,12 +437,6 @@ final class HiddenClassVarHandleMarkHolder extends MarkHolder {
           throw new ConcurrentModificationException("Read of storage was not threadsafe " + opVal);
       }
     }
-
     return Collections.unmodifiableList(new ArrayList<>(marks));
-  }
-
-  @Override
-  public int maxMarks() {
-    return MAX_EVENTS;
   }
 }

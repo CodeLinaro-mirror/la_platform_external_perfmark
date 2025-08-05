@@ -16,16 +16,37 @@
 
 package io.perfmark.java6;
 
+import io.perfmark.impl.MarkRecorder;
 import io.perfmark.impl.MarkHolder;
+import io.perfmark.impl.MarkRecorderRef;
+import io.perfmark.java6.SecretMarkRecorder.SynchronizedMarkRecorder;
 import io.perfmark.testing.MarkHolderTest;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
 
 @RunWith(JUnit4.class)
 public class SynchronizedMarkHolderTest extends MarkHolderTest  {
 
+  @Before
+  public void setUp() {
+    SynchronizedMarkRecorder.setLocalMarkHolder(
+        new SynchronizedMarkHolder(32768, MarkRecorderRef.newRef()));
+  }
+
+  @After
+  public void tearDown() {
+    SynchronizedMarkRecorder.clearLocalMarkHolder();
+  }
+
+  @Override
+  protected MarkRecorder getMarkRecorder() {
+    return new SynchronizedMarkRecorder();
+  }
+
   @Override
   protected MarkHolder getMarkHolder() {
-    return new SynchronizedMarkHolder();
+    return SecretMarkRecorder.SynchronizedMarkRecorder.getLocalMarkHolder();
   }
 }

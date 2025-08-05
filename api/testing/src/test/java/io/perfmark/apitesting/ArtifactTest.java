@@ -34,9 +34,9 @@ public class ArtifactTest {
     List<String> reflectiveClasses =
         List.of(
             "io.perfmark.impl.SecretPerfMarkImpl$PerfMarkImpl",
-            "io.perfmark.java9.SecretVarHandleMarkHolderProvider$VarHandleMarkHolderProvider",
-            "io.perfmark.java6.SecretSynchronizedMarkHolderProvider$SynchronizedMarkHolderProvider",
-            "io.perfmark.java7.SecretMethodHandleGenerator$MethodHandleGenerator"
+            "io.perfmark.java9.SecretMarkRecorder$VarHandleMarkRecorder",
+            "io.perfmark.java6.SecretMarkRecorder$SynchronizedMarkRecorder",
+            "io.perfmark.java7.SecretGenerator$MethodHandleGenerator"
             );
     for (String reflectiveClass : reflectiveClasses) {
       Class<?> clz = Class.forName(reflectiveClass, false, getClass().getClassLoader());
@@ -49,6 +49,8 @@ public class ArtifactTest {
 
   private static void checkPackage(Package pkg) {
     Truth.assertWithMessage(pkg.toString()).that(pkg.getImplementationTitle()).contains("PerfMark");
+    Truth.assertWithMessage(pkg.toString()).that(pkg.toString()).contains("PerfMark");
+    Truth.assertWithMessage(pkg.toString()).that(pkg.isSealed()).isFalse();
 
     String vers = pkg.getImplementationVersion();
     assertNotNull(vers);
@@ -56,6 +58,7 @@ public class ArtifactTest {
     Truth.assertThat(path).hasLength(3);
     Truth.assertThat(Long.parseLong(path[0])).isAtLeast(0);
     Truth.assertThat(Long.parseLong(path[1])).isAtLeast(1);
+    Truth.assertThat(Long.parseLong(path[2].replace("-SNAPSHOT", ""))).isAtLeast(0);
 
     Truth.assertThat(pkg.getImplementationVendor()).isNotEmpty();
   }

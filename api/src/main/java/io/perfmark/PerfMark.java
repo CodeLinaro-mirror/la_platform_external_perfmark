@@ -16,21 +16,21 @@
 
 package io.perfmark;
 
-import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import com.google.errorprone.annotations.CheckReturnValue;
 import com.google.errorprone.annotations.DoNotCall;
 import com.google.errorprone.annotations.MustBeClosed;
 import java.lang.reflect.Method;
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
+import java.util.function.ToLongFunction;
 
 /**
  * PerfMark is a very low overhead tracing library. To use PerfMark, annotate the code that needs to
  * be traced using the start and stop methods. For example:
  *
  * <pre>{@code
- * PerfMark.startTask("parseMessage");
- * try {
+ * try (var close = PerfMark.traceTask("parseMessage")) {
  *   message = parse(bytes);
- * } finally {
- *   PerfMark.stopTask("parseMessage");
  * }
  * }</pre>
  *
@@ -41,51 +41,45 @@ import java.lang.reflect.Method;
  * System property {@code io.perfmark.PerfMark.startEnabled} to true.
  *
  * <p>Tasks represent the span of work done by some code, starting and stopping in the same thread.
- * Each task is started using one of the {@code startTask} methods, and ended using one of
- * {@code stopTask} methods.  Each start must have a corresponding stop.    While not required,
- * it is good practice for the start and stop calls have matching arguments for clarity.  Tasks
- * form a "tree", with each child task starting after the parent has started, and stopping before
- * the parent has stopped. The most recently started (and not yet stopped) task is used by the
- * tagging and linking commands described below.
+ * Each task is started using one of the {@code startTask} methods, and ended using one of {@code
+ * stopTask} methods. Each start must have a corresponding stop. While not required, it is good
+ * practice for the start and stop calls have matching arguments for clarity. Tasks form a "tree",
+ * with each child task starting after the parent has started, and stopping before the parent has
+ * stopped. The most recently started (and not yet stopped) task is used by the tagging and linking
+ * commands described below.
  *
- * <p>Tags are metadata about the task.  Each {@code Tag} contains a String and/or a long that
- * describes the task, such as an RPC name, or request ID.  When PerfMark is disabled, the Tag
- * objects are not created, avoiding overhead.  Tags are useful for keeping track of metadata
- * about a task(s) that doesn't change frequently, or needs to be applied at multiple layers.
- * In addition to Tag objects, named-tags can be added to the current task using the
- * {@code attachTag} methods.  These allow including key-value like metadata with the task.
+ * <p>Tags are metadata about the task. Each {@code Tag} contains a String and/or a long that
+ * describes the task, such as an RPC name, or request ID. When PerfMark is disabled, the Tag
+ * objects are not created, avoiding overhead. Tags are useful for keeping track of metadata about a
+ * task(s) that doesn't change frequently, or needs to be applied at multiple layers. In addition to
+ * Tag objects, named-tags can be added to the current task using the {@code attachTag} methods.
+ * These allow including key-value like metadata with the task.
  *
- * <p>Links allow the code to represent relationships between different threads.  When one thread
- * initiates work for another thread (such as a callback), Links express the control flow.  For
+ * <p>Links allow the code to represent relationships between different threads. When one thread
+ * initiates work for another thread (such as a callback), Links express the control flow. For
  * example:
  *
  * <pre>{@code
- * PerfMark.startTask("handleMessage");
- * try {
+ * try (var close = PerfMark.traceTask("handleMessage")) {
  *   Link link = PerfMark.linkOut();
- *   message = parse(bytes);
+ *   var message = parse(bytes);
  *   executor.execute(() -> {
- *     PerfMark.startTask("processMessage");
- *     try {
+ *     try (var closeInner = PerfMark.traceTask("processMessage")) {
  *       PerfMark.linkIn(link);
  *       handle(message);
- *     } finally {
- *       PerfMark.stopTask("processMessage");
  *     }
  *   });
- * } finally {
- *   PerfMark.stopTask("handleMessage");
  * }
  * }</pre>
  *
  * <p>Links are created inside the scope of the current task and are linked into the scope of
- * another task.  PerfMark will represent the causal relationship between these two tasks.  Links
- * have a many-many relationship, and can be reused.  Like Tasks and Tags, when PerfMark is
- * disabled, the Links returned are no-op implementations.
+ * another task. PerfMark will represent the causal relationship between these two tasks. Links have
+ * a many-many relationship, and can be reused. Like Tasks and Tags, when PerfMark is disabled, the
+ * Links returned are no-op implementations.
  *
- * <p>Events are a special kind of Task, which do not have a duration.  In effect, they only have
- * a single timestamp the represents a particular occurrence.  Events are slightly more efficient
- * than tasks while PerfMark is enabled, but cannot be used with Links or named-tags.
+ * <p>Events are a special kind of Task, which do not have a duration. In effect, they only have a
+ * single timestamp the represents a particular occurrence. Events are slightly more efficient than
+ * tasks while PerfMark is enabled, but cannot be used with Links or named-tags.
  *
  * @author Carl Mastrangelo
  */
@@ -96,8 +90,8 @@ public final class PerfMark {
    *
    * @param value {@code true} to enable PerfMark recording, or {@code false} to disable it.
    * @return If the enabled value was changed.
+   * @since 0.13.37
    */
-  @CanIgnoreReturnValue
   public static boolean setEnabled(boolean value) {
     return impl.setEnabled(value, false);
   }
@@ -113,6 +107,7 @@ public final class PerfMark {
    *
    * @param taskName the name of the task.
    * @param tag a user provided tag for the task.
+   * @since 0.13.37
    */
   public static void startTask(String taskName, Tag tag) {
     impl.startTask(taskName, tag);
@@ -124,6 +119,7 @@ public final class PerfMark {
    * be grouped together for analysis later, so avoid using too many unique task names.
    *
    * @param taskName the name of the task.
+   * @since 0.13.37
    */
   public static void startTask(String taskName) {
     impl.startTask(taskName);
@@ -175,6 +171,7 @@ public final class PerfMark {
    * @since 0.23.0
    */
   @MustBeClosed
+  @CheckReturnValue
   public static TaskCloseable traceTask(String taskName) {
     impl.startTask(taskName);
     return TaskCloseable.INSTANCE;
@@ -187,7 +184,7 @@ public final class PerfMark {
    *
    * <p>This function has many more caveats than the {@link #traceTask(String)} that accept a
    * string. See the docs at {@link #attachTag(String, Object, StringFunction)} for a list of risks
-   * associated with passing a function.  Unlike other closeables, it is not safe to call close()
+   * associated with passing a function. Unlike other closeables, it is not safe to call close()
    * more than once.
    *
    * @param taskNameObject the name of the task.
@@ -197,6 +194,7 @@ public final class PerfMark {
    * @since 0.23.0
    */
   @MustBeClosed
+  @CheckReturnValue
   public static <T> TaskCloseable traceTask(
       T taskNameObject, StringFunction<? super T> taskNameFunction) {
     impl.startTask(taskNameObject, taskNameFunction);
@@ -214,6 +212,7 @@ public final class PerfMark {
    *
    * @param eventName the name of the event.
    * @param tag a user provided tag for the event.
+   * @since 0.13.37
    */
   public static void event(String eventName, Tag tag) {
     impl.event(eventName, tag);
@@ -225,6 +224,7 @@ public final class PerfMark {
    * method is a no-op.
    *
    * @param eventName the name of the event.
+   * @since 0.13.37
    */
   public static void event(String eventName) {
     impl.event(eventName);
@@ -268,6 +268,7 @@ public final class PerfMark {
    *
    * @param taskName the name of the task being ended.
    * @param tag the tag of the task being ended.
+   * @since 0.13.37
    */
   public static void stopTask(String taskName, Tag tag) {
     impl.stopTask(taskName, tag);
@@ -285,6 +286,7 @@ public final class PerfMark {
    * of exceptions. Failing to do so may result in corrupted results.
    *
    * @param taskName the name of the task being ended.
+   * @since 0.13.37
    */
   public static void stopTask(String taskName) {
     impl.stopTask(taskName);
@@ -318,6 +320,7 @@ public final class PerfMark {
    * tasks may change over time.
    *
    * @return a Tag that has no name or id.
+   * @since 0.13.37
    */
   public static Tag createTag() {
     return Impl.NO_TAG;
@@ -330,6 +333,7 @@ public final class PerfMark {
    *
    * @param id a user provided identifier for this Tag.
    * @return a Tag that has no name.
+   * @since 0.13.37
    */
   public static Tag createTag(long id) {
     return impl.createTag(Impl.NO_TAG_NAME, id);
@@ -342,6 +346,7 @@ public final class PerfMark {
    *
    * @param name a user provided name for this Tag.
    * @return a Tag that has no numeric identifier.
+   * @since 0.13.37
    */
   public static Tag createTag(String name) {
     return impl.createTag(name, Impl.NO_TAG_ID);
@@ -355,6 +360,7 @@ public final class PerfMark {
    * @param id a user provided identifier for this Tag.
    * @param name a user provided name for this Tag.
    * @return a Tag that has both a name and id.
+   * @since 0.13.37
    */
   public static Tag createTag(String name, long id) {
     return impl.createTag(name, id);
@@ -407,10 +413,11 @@ public final class PerfMark {
    * <p>Recording the amount of work done in a task:
    *
    * <pre>
-   *   PerfMark.startTask("read");
-   *   byte[] data = file.read();
-   *   PerfMark.attachTag(PerfMark.createTag("bytes read", data.length));
-   *   PerfMark.stopTask("read");
+   *   byte[] data;
+   *   try (var close = PerfMark.traceTask("read")) {
+   *     data = file.read();
+   *     PerfMark.attachTag(PerfMark.createTag("bytes read", data.length));
+   *   }
    * </pre>
    *
    * <p>Recording a tag which may be absent on an exception:
@@ -472,7 +479,7 @@ public final class PerfMark {
    * tags. This method is useful for when you have the tag information after the task is started.
    *
    * <p>This method may treat the given two longs as special. If the tag name contains the string
-   * "uuid" (case insensitive), the value may be treated as a single 128 bit value. An example
+   * "uuid" (case-insensitive), the value may be treated as a single 128 bit value. An example
    * usage:
    *
    * <pre>
@@ -542,13 +549,69 @@ public final class PerfMark {
    *
    * @param tagName The name of the value being attached
    * @param tagObject The tag object which will passed to the stringFunction.
-   * @param stringFunction The function that will convert the object to
+   * @param stringFunction The function that will convert the object to a tag
+   * @param <T> the type of tag object to be stringified
+   * @since 0.27.0
+   */
+  public static <T> void attachStringTag(
+      String tagName, T tagObject, Function<? super T, ? extends String> stringFunction) {
+    impl.attachTag(tagName, tagObject, stringFunction);
+  }
+
+  /**
+   * Attaches an additional keyed tag to the current active task. The tag provided is independent of
+   * the tag used with {@code startTask} and {@code stopTask}. This tag operation is different than
+   * {@link Tag} in that the tag value has an associated name (also called a key). The tag name and
+   * value are attached to the most recently started task, and don't have to match any other tags.
+   * This method is useful for when you have the tag information after the task is started.
+   *
+   * <p>Prefer {@link #attachStringTag(String, Object, Function)} over this one.
+   *
+   * @param tagName The name of the value being attached
+   * @param tagObject The tag object which will passed to the stringFunction.
+   * @param stringFunction The function that will convert the object to a tag
    * @param <T> the type of tag object to be stringified
    * @since 0.22.0
    */
   public static <T> void attachTag(
       String tagName, T tagObject, StringFunction<? super T> stringFunction) {
     impl.attachTag(tagName, tagObject, stringFunction);
+  }
+
+  /**
+   * Attaches an additional keyed tag to the current active task. The tag provided is independent of
+   * the tag used with {@code startTask} and {@code stopTask}. This tag operation is different than
+   * {@link Tag} in that the tag value has an associated name (also called a key). The tag name and
+   * value are attached to the most recently started task, and don't have to match any other tags.
+   * This method is useful for when you have the tag information after the task is started.
+   *
+   * @param tagName The name of the value being attached
+   * @param tagObject The tag object which will passed to the intFunction.
+   * @param intFunction The function that will convert the object to a tag
+   * @param <T> the type of tag object to mapped to in.
+   * @since 0.27.0
+   */
+  public static <T> void attachIntTag(
+      String tagName, T tagObject, ToIntFunction<? super T> intFunction) {
+    impl.attachTag(tagName, tagObject, intFunction);
+  }
+
+  /**
+   * Attaches an additional keyed tag to the current active task. The tag provided is independent of
+   * the tag used with {@code startTask} and {@code stopTask}. This tag operation is different than
+   * {@link Tag} in that the tag value has an associated name (also called a key). The tag name and
+   * value are attached to the most recently started task, and don't have to match any other tags.
+   * This method is useful for when you have the tag information after the task is started.
+   *
+   * @param tagName The name of the value being attached
+   * @param tagObject The tag object which will passed to the intFunction.
+   * @param longFunction The function that will convert the object to a tag
+   * @param <T> the type of tag object to mapped to in.
+   * @since 0.27.0
+   */
+  public static <T> void attachLongTag(
+      String tagName, T tagObject, ToLongFunction<? super T> longFunction) {
+    impl.attachTag(tagName, tagObject, longFunction);
   }
 
   private static final Impl impl;
@@ -577,11 +640,12 @@ public final class PerfMark {
     if (err != null) {
       try {
         if (Boolean.getBoolean("io.perfmark.PerfMark.debug")) {
-          // We need to be careful here, as it's easy to accidentally cause a class load.  Logger is loaded
-          // reflectively to avoid accidentally pulling it in.
+          // We need to be careful here, as it's easy to accidentally cause a class load.  Logger is
+          // loaded reflectively to avoid accidentally pulling it in.
           // TODO(carl-mastrangelo): Maybe make this load SLF4J instead?
           Class<?> logClass = Class.forName("java.util.logging.Logger");
-          Object logger = logClass.getMethod("getLogger", String.class).invoke(null, PerfMark.class.getName());
+          Object logger =
+              logClass.getMethod("getLogger", String.class).invoke(null, PerfMark.class.getName());
           Class<?> levelClass = Class.forName("java.util.logging.Level");
           Object level = levelClass.getField("FINE").get(null);
           Method logMethod = logClass.getMethod("log", levelClass, String.class, Throwable.class);
