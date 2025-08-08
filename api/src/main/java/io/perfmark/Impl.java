@@ -16,11 +16,14 @@
 
 package io.perfmark;
 
-import javax.annotation.Nullable;
+import java.util.function.Function;
+import java.util.function.ToIntFunction;
+import java.util.function.ToLongFunction;
 
 public class Impl {
   static final String NO_TAG_NAME = "";
   static final long NO_TAG_ID = Long.MIN_VALUE;
+
   /**
    * This value is current {@link Long#MIN_VALUE}, but it could also be {@code 0}. The invariant
    * {@code NO_LINK_ID == -NO_LINK_ID} must be maintained to work when PerfMark is disabled.
@@ -43,7 +46,7 @@ public class Impl {
     return false;
   }
 
-  protected <T> void startTask(T taskNameObject, StringFunction<? super T> taskNameFunc) {}
+  protected <T> void startTask(T taskNameObject, Function<? super T, String> taskNameFunc) {}
 
   protected void startTask(String taskName, Tag tag) {}
 
@@ -80,13 +83,17 @@ public class Impl {
   protected void attachTag(String tagName, long tagValue0, long tagValue1) {}
 
   protected <T> void attachTag(
-      String tagName, T tagObject, StringFunction<? super T> stringFunction) {}
+      String tagName, T tagObject, Function<? super T, ? extends String> stringFunction) {}
 
-  protected Tag createTag(@Nullable String tagName, long tagId) {
+  protected <T> void attachTag(String tagName, T tagObject, ToIntFunction<? super T> intFunction) {}
+
+  protected <T> void attachTag(
+      String tagName, T tagObject, ToLongFunction<? super T> longFunction) {}
+
+  protected Tag createTag(String tagName, long tagId) {
     return NO_TAG;
   }
 
-  @Nullable
   protected static String unpackTagName(Tag tag) {
     return tag.tagName;
   }
@@ -99,7 +106,7 @@ public class Impl {
     return link.linkId;
   }
 
-  protected static Tag packTag(@Nullable String tagName, long tagId) {
+  protected static Tag packTag(String tagName, long tagId) {
     return new Tag(tagName, tagId);
   }
 

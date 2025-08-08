@@ -27,11 +27,11 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public class VersionTest {
 
-  private static final short JAVA_VERSION_6 = 50;
+  private static final short JAVA_VERSION_6 = 52; // Java 8, now.
 
   @Test
-  public void blah() throws Exception {
-    Class<?> clz = SecretSynchronizedMarkHolderProvider.class;
+  public void checkVersion() throws Exception {
+    Class<?> clz = SecretMarkRecorder.SynchronizedMarkRecorder.class;
     try (InputStream stream =
         clz.getClassLoader().getResourceAsStream(clz.getName().replace('.', '/') + ".class")) {
       byte[] data = stream.readAllBytes();

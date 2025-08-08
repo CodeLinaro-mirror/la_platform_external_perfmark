@@ -18,6 +18,8 @@ package io.perfmark.java9;
 
 import io.perfmark.impl.Generator;
 import io.perfmark.impl.Mark;
+import io.perfmark.impl.MarkList;
+import io.perfmark.impl.MarkRecorderRef;
 import java.util.List;
 import org.openjdk.jcstress.annotations.Actor;
 import org.openjdk.jcstress.annotations.Description;
@@ -63,7 +65,7 @@ import org.openjdk.jcstress.infra.results.L_Result;
 @Outcome(id = "31", expect = Expect.ACCEPTABLE, desc = "31 Writes")
 @Outcome(id = "32", expect = Expect.ACCEPTABLE, desc = "32 Writes")
 @Outcome(id = "-1", expect = Expect.FORBIDDEN, desc = "Wrong Type")
-@Outcome(id = "-3", expect = Expect.FORBIDDEN, desc = "Wrong ID")
+@Outcome(id = "-2", expect = Expect.FORBIDDEN, desc = "Wrong ID")
 @State
 @Description("Simulates the PerfMarkStorage reader.")
 public class PerfMarkStorageStress {
@@ -75,7 +77,8 @@ public class PerfMarkStorageStress {
     assert Generator.GEN_OFFSET <= OFFSET;
   }
 
-  private final VarHandleMarkHolder holder = new VarHandleMarkHolder(SIZE);
+  private final VarHandleMarkHolder holder =
+      new VarHandleMarkHolder(MarkRecorderRef.newRef(), SIZE);
 
   @Actor
   public void writer() {
@@ -87,10 +90,11 @@ public class PerfMarkStorageStress {
   @Actor
   @SuppressWarnings("ReferenceEquality")
   public void reader(L_Result r) {
-    List<Mark> marks = holder.read(true);
-    int ret = marks.size();
-    for (int i = 0; i < marks.size(); i++) {
-      Mark mark = marks.get(i);
+    List<MarkList> marksLists = holder.read();
+    MarkList marksList = marksLists.get(0);
+    int ret = marksList.size();
+    for (int i = 0; i < marksList.size(); i++) {
+      Mark mark = marksList.get(i);
       if (mark.getOperation() != Mark.Operation.LINK) {
         ret = -1;
         break;
