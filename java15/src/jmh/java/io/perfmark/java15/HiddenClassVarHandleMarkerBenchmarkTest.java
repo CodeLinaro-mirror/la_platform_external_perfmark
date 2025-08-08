@@ -16,8 +16,8 @@
 
 package io.perfmark.java15;
 
-import io.perfmark.impl.MarkHolder;
-import io.perfmark.testing.MarkHolderBenchmark;
+import io.perfmark.impl.MarkRecorder;
+import io.perfmark.testing.MarkHolderRecorder;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -38,8 +38,8 @@ public class HiddenClassVarHandleMarkerBenchmarkTest {
   @Test
   public void markHolderBenchmark() throws Exception {
     Options options = new OptionsBuilder()
-        .include(SecretHiddenClassMarkHolderBenchmark.class.getCanonicalName())
-        .addProfiler("perfasm")
+        .include(SecretHiddenClassMarkRecorderBenchmark.class.getCanonicalName())
+        .addProfiler("cl")
         .measurementIterations(10)
         .warmupIterations(10)
         .forks(1)
@@ -51,37 +51,26 @@ public class HiddenClassVarHandleMarkerBenchmarkTest {
             "-da",
             "-XX:+UnlockExperimentalVMOptions",
             "-XX:+UnlockDiagnosticVMOptions",
-            "-XX:+UseEpsilonGC",
-            "-XX:+LogCompilation",
-            "-XX:LogFile=/dev/null",
-            "-XX:+PrintAssembly",
-            "-XX:+PrintInterpreter",
-            "-XX:+PrintNMethods",
-            "-XX:+PrintNativeNMethods",
-            "-XX:+PrintSignatureHandlers",
-            "-XX:+PrintAdapterHandlers",
-            "-XX:+PrintStubCode",
-            "-XX:+PrintCompilation",
-            "-XX:+PrintInlining",
-            "-XX:PrintAssemblyOptions=syntax",
-            "-XX:PrintAssemblyOptions=intel")
+            "-XX:+HeapDumpOnOutOfMemoryError",
+            "-XX:HeapDumpPath=/tmp/oom.hprof")
         .build();
 
     new Runner(options).run();
   }
 
   @State(Scope.Thread)
-  public static class SecretHiddenClassMarkHolderBenchmark extends MarkHolderBenchmark {
+  public static class SecretHiddenClassMarkRecorderBenchmark extends MarkHolderRecorder {
     @Override
-    public MarkHolder getMarkHolder() {
-      return new SecretHiddenClassMarkHolderProvider.HiddenClassMarkHolderProvider().create(1234, 16384);
+    public MarkRecorder getMarkRecorder() {
+      return new SecretMarkRecorder.HiddenClassMarkRecorder();
     }
 
     @Benchmark
     @BenchmarkMode(Mode.AverageTime)
     @OutputTimeUnit(TimeUnit.MICROSECONDS)
-    public MarkHolder allocationBenchmark() {
-      return new SecretHiddenClassMarkHolderProvider.HiddenClassMarkHolderProvider().create(1234, 4);
+    public Class<?> allocationBenchmark() throws IllegalAccessException {
+      // TODO(carl-mastrangelo): fix this once the global mark recorder refactor is done.
+      return Loader.getHiddenClass(Loader.DEFAULT_SIZE);
     }
   }
 }

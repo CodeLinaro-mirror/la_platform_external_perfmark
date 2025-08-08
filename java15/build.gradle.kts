@@ -1,7 +1,8 @@
 import net.ltgt.gradle.errorprone.errorprone
 
+@Suppress("DSL_SCOPE_VIOLATION")
 plugins {
-    id("io.github.reyerizo.gradle.jcstress")
+    alias(libs.plugins.jcstress)
 }
 
 buildscript {
@@ -28,7 +29,6 @@ val jmhAnnotationProcessor by configurations.getting {
 
 dependencies {
     implementation(project(":perfmark-impl"))
-    compileOnly(libs.jsr305)
 
     testImplementation(project(":perfmark-api"))
     testImplementation(project(":perfmark-testing"))
@@ -63,7 +63,7 @@ tasks.register<Test>("jmh") {
 
 //  ./gradlew --no-daemon clean :perfmark-java9:jcstress
 jcstress {
-    jcstressDependency = "org.openjdk.jcstress:jcstress-core:0.5"
+    jcstressDependency = "org.openjdk.jcstress:jcstress-core:0.15"
     // mode "tough"
     deoptRatio = "2"
 }

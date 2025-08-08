@@ -16,7 +16,6 @@
 
 package io.perfmark.tracewriter;
 
-import com.google.gson.annotations.SerializedName;
 import io.perfmark.impl.Mark;
 import java.util.AbstractMap;
 import java.util.ArrayList;
@@ -27,58 +26,46 @@ import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
 import java.util.Set;
-import javax.annotation.CheckReturnValue;
-import javax.annotation.Nullable;
 
-@CheckReturnValue
 final class TraceEvent implements Cloneable {
 
   private TraceEvent() {}
 
   static final TraceEvent EVENT = new TraceEvent();
 
-  @SerializedName("ph")
   @SuppressWarnings("unused")
-  private String phase;
+  String phase;
 
-  @SerializedName("name")
   @SuppressWarnings("unused")
-  private String name;
+  String name;
 
-  @Nullable
-  @SerializedName("cat")
+  /** {@code Nullable} */
   @SuppressWarnings("unused")
-  private String categories;
+  String categories;
 
-  @Nullable
-  @SerializedName("ts")
+  /** {@code Nullable} */
   @SuppressWarnings("unused")
-  private Double traceClockMicros;
+  Double traceClockMicros;
 
-  @Nullable
-  @SerializedName("pid")
+  /** {@code Nullable} */
   @SuppressWarnings("unused")
-  private Long pid;
+  Long pid;
 
-  @SerializedName("tid")
-  @Nullable
+  /** {@code Nullable} */
   @SuppressWarnings("unused")
-  private Long tid;
+  Long tid;
 
-  @Nullable
-  @SerializedName("id")
+  /** {@code Nullable} */
   @SuppressWarnings("unused")
-  private Long id;
+  Long id;
 
-  @Nullable
-  @SerializedName("args")
+  /** {@code Nullable} */
   @SuppressWarnings("unused")
-  private TagMap args = null;
+  TagMap args = null;
 
-  @Nullable
-  @SerializedName("cname")
+  /** {@code Nullable} */
   @SuppressWarnings("unused")
-  private String colorName = null;
+  String colorName = null;
 
   TraceEvent name(String name) {
     if (name == null) {
@@ -198,7 +185,8 @@ final class TraceEvent implements Cloneable {
       this.unkeyedValues = unkeyedValues;
     }
 
-    TagMap withUnkeyed(@Nullable String tagName, long tagId) {
+    /** tagName is {@code Nullable} */
+    TagMap withUnkeyed(String tagName, long tagId) {
       List<Object> unkeyedValues = null;
       if (tagName != null && !Mark.NO_TAG_NAME.equals(tagName)) {
         unkeyedValues = new ArrayList<>(this.unkeyedValues);
@@ -215,13 +203,15 @@ final class TraceEvent implements Cloneable {
       }
     }
 
-    TagMap withKeyed(@Nullable String tagName, Object tagValue) {
+    /** tagName is {@code Nullable} */
+    TagMap withKeyed(String tagName, Object tagValue) {
       List<Entry<String, ?>> keyedValues = new ArrayList<>(this.keyedValues);
       keyedValues.add(new SimpleImmutableEntry<>(String.valueOf(tagName), tagValue));
       return new TagMap(Collections.unmodifiableList(keyedValues), unkeyedValues);
     }
 
-    TagMap withKeyed(@Nullable String tagName, long tagValue0, long tagValue1) {
+    /** tagName is {@code Nullable} */
+    TagMap withKeyed(String tagName, long tagValue0, long tagValue1) {
       List<Entry<String, ?>> keyedValues = new ArrayList<>(this.keyedValues);
       keyedValues.add(
           new SimpleImmutableEntry<>(String.valueOf(tagName), tagValue0 + ":" + tagValue1));
