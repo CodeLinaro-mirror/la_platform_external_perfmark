@@ -1,4 +1,4 @@
-// Copyright (C) 2023 The Android Open Source Project
+// Copyright (C) 2026 The Android Open Source Project
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,43 +14,27 @@
 //
 //
 
+// Include this target otherwise PerfMark will be no-op.
 java_library {
-    name: "perfmark-api-lib",
-    static_libs: [
-        "perfmark",
-        "perfmark-api-link",
-        "perfmark-api-stringfunction",
-        "perfmark-api-tag",
-    ],
-    host_supported: true,
-    apex_available: [
-        "//apex_available:anyapex",
-        "//apex_available:platform",
-    ],
-    java_version: "11",
-    sdk_version: "current",
-    min_sdk_version: "30",
-    target: {
-        windows: {
-            enabled: true,
-        },
-    },
-}
-
-java_library {
-    name: "perfmark",
+    name: "perfmark-impl",
     srcs: [
-        "src/main/java/io/perfmark/PerfMark.java",
-        "src/main/java/io/perfmark/TaskCloseable.java",
+        "src/main/java/io/perfmark/impl/SecretPerfMarkImpl.java",
     ],
     static_libs: [
-        "error_prone_annotations",
         "jsr305",
         "perfmark-api-impl",
         "perfmark-api-link",
         "perfmark-api-stringfunction",
         "perfmark-api-tag",
+        "perfmark-impl-generator",
+        "perfmark-impl-mark",
+        "perfmark-impl-mark-recorder",
+        "perfmark-impl-storage",
+        "perfmark-java6",
     ],
+    optimize: {
+        proguard_flags_files: ["proguard.flags"],
+    },
     host_supported: true,
     apex_available: [
         "//apex_available:anyapex",
@@ -67,12 +51,9 @@ java_library {
 }
 
 java_library {
-    name: "perfmark-api-tag",
-    srcs: [
-        "src/main/java/io/perfmark/Tag.java",
-    ],
+    name: "perfmark-impl-mark-recorder",
+    srcs: ["src/main/java/io/perfmark/impl/MarkRecorder.java"],
     static_libs: [
-        "error_prone_annotations",
         "jsr305",
     ],
     host_supported: true,
@@ -92,12 +73,9 @@ java_library {
 }
 
 java_library {
-    name: "perfmark-api-link",
-    srcs: [
-        "src/main/java/io/perfmark/Link.java",
-    ],
+    name: "perfmark-impl-thread-info",
+    srcs: ["src/main/java/io/perfmark/impl/ThreadInfo.java"],
     static_libs: [
-        "error_prone_annotations",
         "jsr305",
     ],
     host_supported: true,
@@ -117,12 +95,36 @@ java_library {
 }
 
 java_library {
-    name: "perfmark-api-stringfunction",
+    name: "perfmark-impl-mark-recorder-ref",
     srcs: [
-        "src/main/java/io/perfmark/StringFunction.java",
+        "src/main/java/io/perfmark/impl/MarkRecorderRef.java",
+        "src/main/java/io/perfmark/impl/ThreadRef.java",
+        "src/main/java/io/perfmark/impl/ThreadRefInfo.java",
     ],
     static_libs: [
-        "error_prone_annotations",
+        "jsr305",
+        "perfmark-impl-thread-info",
+    ],
+    host_supported: true,
+    apex_available: [
+        "//apex_available:anyapex",
+        "//apex_available:platform",
+    ],
+    java_version: "11",
+    sdk_version: "current",
+    min_sdk_version: "30",
+    visibility: ["//external/perfmark:__subpackages__"],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
+}
+
+java_library {
+    name: "perfmark-impl-generator",
+    srcs: ["src/main/java/io/perfmark/impl/Generator.java"],
+    static_libs: [
         "jsr305",
     ],
     host_supported: true,
@@ -142,16 +144,85 @@ java_library {
 }
 
 java_library {
-    name: "perfmark-api-impl",
+    name: "perfmark-impl-storage",
     srcs: [
-        "src/main/java/io/perfmark/Impl.java",
+        "src/main/java/io/perfmark/impl/Storage.java",
     ],
     static_libs: [
-        "error_prone_annotations",
         "jsr305",
-        "perfmark-api-link",
-        "perfmark-api-stringfunction",
-        "perfmark-api-tag",
+        "perfmark-impl-generator",
+        "perfmark-impl-mark",
+        "perfmark-impl-mark-holder",
+        "perfmark-impl-mark-list",
+    ],
+    host_supported: true,
+    apex_available: [
+        "//apex_available:anyapex",
+        "//apex_available:platform",
+    ],
+    java_version: "11",
+    sdk_version: "current",
+    min_sdk_version: "30",
+    visibility: ["//external/perfmark:__subpackages__"],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
+}
+
+java_library {
+    name: "perfmark-impl-mark-holder",
+    srcs: ["src/main/java/io/perfmark/impl/MarkHolder.java"],
+    static_libs: [
+        "jsr305",
+        "perfmark-impl-mark-list",
+    ],
+    host_supported: true,
+    apex_available: [
+        "//apex_available:anyapex",
+        "//apex_available:platform",
+    ],
+    java_version: "11",
+    sdk_version: "current",
+    min_sdk_version: "30",
+    visibility: ["//external/perfmark:__subpackages__"],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
+}
+
+java_library {
+    name: "perfmark-impl-mark",
+    srcs: ["src/main/java/io/perfmark/impl/Mark.java"],
+    static_libs: [
+        "jsr305",
+        "perfmark-impl-generator",
+    ],
+    host_supported: true,
+    apex_available: [
+        "//apex_available:anyapex",
+        "//apex_available:platform",
+    ],
+    java_version: "11",
+    sdk_version: "current",
+    min_sdk_version: "30",
+    visibility: ["//external/perfmark:__subpackages__"],
+    target: {
+        windows: {
+            enabled: true,
+        },
+    },
+}
+
+java_library {
+    name: "perfmark-impl-mark-list",
+    srcs: ["src/main/java/io/perfmark/impl/MarkList.java"],
+    static_libs: [
+        "jsr305",
+        "perfmark-impl-mark",
     ],
     host_supported: true,
     apex_available: [

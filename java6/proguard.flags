@@ -1,0 +1,2 @@
+-keep,allowoptimization class io.perfmark.java6.SecretGenerator$VolatileGenerator { <init>(...); }
+-keep,allowoptimization class io.perfmark.java6.SecretMarkRecorder$SynchronizedMarkRecorder { <init>(...); }
