@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.lang.management.ManagementFactory;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -294,23 +295,11 @@ public final class TraceEventWriter {
         errors.add(e);
       }
       try {
-        Class<?> clz = Class.forName("java.lang.management.ManagementFactory");
-        Method currentMethod = clz.getMethod("getRuntimeMXBean");
-        Object runtimeMXBeanObject = currentMethod.invoke(null);
-        Class<?> runtimeMXBeanClass = runtimeMXBeanObject.getClass();
-        Method pidMethod = runtimeMXBeanClass.getMethod("getName");
-        String name = (String) pidMethod.invoke(runtimeMXBeanObject);
+        String name = ManagementFactory.getRuntimeMXBean().getName();
         int index = name.indexOf('@');
         if (index != -1) {
           return Long.parseLong(name.substring(0, index));
         }
-      } catch (Exception | Error e) {
-        errors.add(e);
-      }
-      try {
-        Class<?> clz = Class.forName("android.os.Process");
-        Method pidMethod = clz.getMethod("myPid");
-        return ((Integer) pidMethod.invoke(null)).longValue();
       } catch (Exception | Error e) {
         errors.add(e);
       }
