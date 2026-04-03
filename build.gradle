@@ -1,5 +1,5 @@
 plugins {
-    id "net.ltgt.errorprone" version "3.1.0" apply false
+    id "net.ltgt.errorprone" version "4.4.0" apply false
 }
 
 subprojects {
@@ -134,7 +134,7 @@ subprojects {
 
     if (rootProject.properties.get('errorProne', true)) {
         dependencies {
-            errorprone 'com.google.errorprone:error_prone_core:2.23.0'
+            errorprone 'com.google.errorprone:error_prone_core:2.29.2'
             errorproneJavac 'com.google.errorprone:javac:9+181-r4173-1'
         }
     } else {
@@ -149,7 +149,7 @@ subprojects {
     }
 
     group = "io.perfmark"
-    version = "0.27.0"
+    version = "0.28.0-SNAPSHOT"
 
     dependencies {
         testImplementation libs.junit
